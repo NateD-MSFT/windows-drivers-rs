@@ -83,3 +83,94 @@ impl SpinLock {
         }
     }
 }
+
+/// Errors relevant to working with spinlocks.
+pub enum SpinLockError {
+    /// Attempted to create a lock a second time.
+    AlreadyCreated {
+        /// The existing, held lock
+        lock: SafeSpinlock,
+    },
+    /// Could not create the lock.
+    CreateFailed,
+    /// The lock is already held.
+    AlreadyHeld {
+        /// The existing, held lock
+        lock: SafeSpinlock,
+    },
+    /// The lock is not yet initialized
+    Uninitialized {
+        /// The existing, held lock
+        lock: SafeSpinlock,
+    },
+    /// The lock is initialized but not held
+    NotHeld {
+        /// The existing, initialized but unheld lock
+        lock: SafeSpinlock,
+    },
+}
+
+/// A state-based wrapper for a WDF SpinLock.
+///
+/// This maintains the same state as the raw wrapper above,
+/// but makes it illegal to attempt to double-acquire or double-release it.
+/// 
+/// This currently does **not** implement Drop, so release still must be manually called.
+/// (What does it mean for a lock to implement Drop in Rust in this context? Is that something
+/// we even want?)
+pub enum SafeSpinlock {
+    /// The spinlock has not been initialized and cannot be used.
+    Uninitialized,
+    /// The spinlock has been initialized but is not held.
+    Initialized {
+        /// The internal raw spinlock.
+        inner: SpinLock,
+    },
+    /// The spinlock is currently held and cannot be acquired again.
+    Held {
+        /// The internal raw spinlock.
+        inner: SpinLock,
+    },
+}
+
+impl SafeSpinlock {
+    /// Attempt to create a spinlock and move this to the initialized state.
+    pub fn create(
+        self,
+        attributes: &mut WDF_OBJECT_ATTRIBUTES,
+    ) -> Result<SafeSpinlock, SpinLockError> {
+        match self {
+            SafeSpinlock::Uninitialized => match SpinLock::create(attributes) {
+                Ok(spin) => Ok(SafeSpinlock::Initialized { inner: spin }),
+                Err(_) => Err(SpinLockError::CreateFailed),
+            },
+            SafeSpinlock::Held { .. } | SafeSpinlock::Initialized { .. } => {
+                Err(SpinLockError::AlreadyCreated { lock: self })
+            }
+        }
+    }
+
+    /// Acquire the spinlock
+    pub fn acquire(self) -> Result<SafeSpinlock, SpinLockError> {
+        match self {
+            SafeSpinlock::Initialized { inner: spin } => {
+                spin.acquire();
+                Ok(SafeSpinlock::Initialized { inner: spin })
+            }
+            SafeSpinlock::Held { .. } => Err(SpinLockError::AlreadyHeld { lock: self }),
+            SafeSpinlock::Uninitialized => Err(SpinLockError::Uninitialized { lock: self }),
+        }
+    }
+
+    /// Release the spinlock
+    pub fn release(self) -> Result<SafeSpinlock, SpinLockError> {
+        match self {
+            SafeSpinlock::Held { inner: spin } => {
+                spin.release();
+                Ok(SafeSpinlock::Held { inner: spin })
+            }
+            SafeSpinlock::Initialized { .. } => Err(SpinLockError::NotHeld { lock: self }),
+            SafeSpinlock::Uninitialized => Err(SpinLockError::Uninitialized { lock: self }),
+        }
+    }
+}
