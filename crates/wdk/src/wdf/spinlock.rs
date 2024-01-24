@@ -155,7 +155,7 @@ impl SafeSpinLock {
         match self {
             SafeSpinLock::Initialized { inner: spin } => {
                 spin.acquire();
-                Ok(SafeSpinLock::Initialized { inner: spin })
+                Ok(SafeSpinLock::Held { inner: spin })
             }
             SafeSpinLock::Held { .. } => Err(SpinLockError::AlreadyHeld { lock: self }),
             SafeSpinLock::Uninitialized => Err(SpinLockError::Uninitialized { lock: self }),

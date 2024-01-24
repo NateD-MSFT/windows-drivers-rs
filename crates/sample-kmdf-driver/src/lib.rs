@@ -21,24 +21,12 @@ extern crate wdk_panic;
 use alloc::{ffi::CString, slice, string::String};
 
 use static_assertions::const_assert;
-use wdk::println;
+use wdk::{println, wdf::SafeSpinLock};
 #[cfg(not(test))]
 use wdk_alloc::WDKAllocator;
 use wdk_macros::call_unsafe_wdf_function_binding;
 use wdk_sys::{
-    ntddk::DbgPrint,
-    DRIVER_OBJECT,
-    NTSTATUS,
-    PCUNICODE_STRING,
-    ULONG,
-    UNICODE_STRING,
-    WCHAR,
-    WDFDEVICE,
-    WDFDEVICE_INIT,
-    WDFDRIVER,
-    WDF_DRIVER_CONFIG,
-    WDF_NO_HANDLE,
-    WDF_NO_OBJECT_ATTRIBUTES,
+    ntddk::DbgPrint, DRIVER_OBJECT, NTSTATUS, PCUNICODE_STRING, ULONG, UNICODE_STRING, WCHAR, WDFDEVICE, WDFDEVICE_INIT, WDFDRIVER, WDF_DRIVER_CONFIG, WDF_NO_HANDLE, WDF_NO_OBJECT_ATTRIBUTES, WDF_OBJECT_ATTRIBUTES
 };
 
 #[cfg(not(test))]
@@ -59,6 +47,16 @@ pub unsafe extern "system" fn driver_entry(
 ) -> NTSTATUS {
     // This is an example of directly using DbgPrint binding to print
     let string = CString::new("Hello World!\n").unwrap();
+
+    // Make a safe spin lock.
+    let mut dummy_attributes : WDF_OBJECT_ATTRIBUTES = Default::default();
+    let mut _safer_lock = SafeSpinLock::Uninitialized;
+    if let Ok(safe_lock) = _safer_lock.create(&mut dummy_attributes) {
+        match safe_lock.acquire() {
+            Ok(locked) => { let _safer_lock = locked;}
+            Err(_) => {panic!("Just getting this to compile")},
+        }
+    }
 
     // SAFETY: This is safe because `string` is a valid pointer to a null-terminated
     // string
